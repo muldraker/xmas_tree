@@ -79,9 +79,9 @@ flash_onboard_led = False           # Debug to check the pico is running
 use_idle_timer = True               # Whether to time out to idle. If false will always update the LEDs.
 time_to_idle_max = 3600 * 6         # Maximum time in seconds before idle
 time_to_idle_delta = 900            # Extra time in seconds added before idle when pressing the button
-time_to_idle = 0                    # Time in seconds before going idle
+time_to_idle = time.time()          # Time in seconds before going idle
 idle_mode = False                   # Whether we are in idle mode.
-time_next_button = 0                # Time in milliseconds to next check for button value - includes debouce
+time_next_button = next_loop_time   # Time in milliseconds to next check for button value - includes debouce
 time_button_debouce = 200           # Time in milliseconds to wait for button debounce
 
 # Define and initialize the onboard LED Pin - for heartbeat checking.
@@ -274,6 +274,9 @@ def update_loop():
     # Show the updates.
     pixels.show()
 
+# Start off with a chaser and some idle time
+add_chaser()
+add_time_to_idle()
 
 while True:
     if flash_onboard_led:
