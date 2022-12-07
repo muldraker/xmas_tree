@@ -99,6 +99,29 @@ pixels.brightness = max_brightness
 pixels.fill((0, 0, 0))  # Clear the pixels
 pixels.show()
 
+_TICKS_PERIOD = const(1<<29)
+_TICKS_MAX = const(_TICKS_PERIOD-1)
+_TICKS_HALFPERIOD = const(_TICKS_PERIOD//2)
+
+
+# Fix the wrap around with supervisor.ticks_ms
+# From https://docs.circuitpython.org/en/latest/shared-bindings/supervisor/index.html
+def ticks_add(ticks, delta):
+    "Add a delta to a base number of ticks, performing wraparound at 2**29ms."
+    return (ticks + delta) % _TICKS_PERIOD
+
+
+def ticks_diff(ticks1, ticks2):
+    "Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks"
+    diff = (ticks1 - ticks2) & _TICKS_MAX
+    diff = ((diff + _TICKS_HALFPERIOD) & _TICKS_MAX) - _TICKS_HALFPERIOD
+    return diff
+
+
+def ticks_less(ticks1, ticks2):
+    "Return true if ticks1 is less than ticks2, assuming that they are within 2**28 ticks"
+    return ticks_diff(ticks1, ticks2) < 0
+
 
 def add_chaser():
     """Will check if there is enough space since the last chaser."""
@@ -110,7 +133,7 @@ def add_chaser():
             #chaser_colour[ind] = (255,255,255)
             chaser_colour[ind] = (random.randrange(64,255),random.randrange(64,255),random.randrange(64,255))
             #chaser_colour[ind] = (128,64,32)
-            time_to_chaser = supervisor.ticks_ms() + random.randrange(min_chaser_time, max_chaser_time)
+            time_to_chaser = ticks_add(supervisor.ticks_ms(), random.randrange(min_chaser_time, max_chaser_time))
             break
         elif -1 < chaser_pos[ind] < last_chaser:
             last_chaser = chaser_pos[ind]
@@ -165,7 +188,7 @@ def decay_leds(decay_chance_mult, decay_chance_div, decay_val_mult, decay_val_di
 
 def add_time_to_idle():
     """Add time to the timer before going to idle.
-    This uses time (seconds) rather than ticks_ms (milliseconds).
+    This uses time (seconds) rather than ticks_ms (milliseconds) so less concerned by wrap-around.
     """
     global time_to_idle, idle_mode
     idle_mode = False
@@ -181,7 +204,7 @@ def add_time_to_idle():
 
 def is_idle():
     """Check if we are (or should be) in idle state.
-    This uses time (seconds) rather than monotonic (milliseconds).
+    This uses time (seconds) rather than ticks_ms (milliseconds) so less concerned by wrap-around.
     """
     global idle_mode, time_to_idle
     # Check if idle mode already set
@@ -206,9 +229,9 @@ def is_button_clicked():
     global time_next_button
     # Onboard Plasma2040 buttons switch to GND, so low value when triggered
     time_now = supervisor.ticks_ms()
-    if time_next_button < time_now and not button.value:
+    if ticks_less(time_next_button, time_now) and not button.value:
         print("Button!")
-        time_next_button = time_now + time_button_debouce
+        time_next_button = ticks_add(time_now, time_button_debouce)
         return True
     else:
         return False
@@ -229,7 +252,7 @@ def update_loop():
     active_chasers = sum(chaser_pos) > num_chasers * -1
     sleep_time = chaser_sleep_time if active_chasers else sparkle_sleep_time
     # Check if we want to do an update to the LEDs
-    if next_loop_time > time_now:
+    if ticks_less(time_now, next_loop_time):
         return
     else:
         next_loop_time = time_now + sleep_time
@@ -239,7 +262,7 @@ def update_loop():
     decay_val_div = chaser_decay_val_div if active_chasers else sparkle_decay_val_div
     decay_val_mult = chaser_decay_val_mult if active_chasers else sparkle_decay_val_mult
     # Check if we randomly want to add a chaser.
-    if time_to_chaser < time_now:
+    if ticks_less(time_to_chaser, time_now):
         add_chaser()
     # Progress the chasers
     progress_chasers()
