@@ -9,6 +9,7 @@ Has an idle mode - where the lights will wake up when pressing the button.
 REQUIRED MODULES/LIBRARIES:
 * CircuitPython
 * Adafruit neopixel (neopixel.mpy)
+* Adafruit fancyled
 
 REQUIRED HARDWARE:
 * Pimoroni Plasma2040 (Or other Raspberry Pi Pico, or even CircuitPython compatible microprocessor).
@@ -48,12 +49,18 @@ import neopixel
 import random
 import supervisor
 import time
-#from rainbowio import colorwheel
+import adafruit_fancyled.adafruit_fancyled as fancy
 
+# Key parameters you will likely want to change:
 pixel_pin = board.GP15              # GPIO pin for talking to the pixels
 button_pin = board.GP26 # 12        # GPIO pin for button to trigger a chaser
-num_pixels = 100                     # Number of neopixels playing with
+num_chaser_pixels = 100             # Number of neopixels for the chaser animation
+num_top_pixels = 1                  # Number of neopixels for the top animation
 max_brightness = 0.30               # Scalar on the max brightness. 1 = max.
+time_to_idle_delta = 900            # Extra time in seconds added before idle when pressing the button
+
+# Following parameters are less likely to change
+num_pixels = num_chaser_pixels + num_top_pixels # Total number of neopixels
 num_sparkles = 1                    # Number of sparkles to track
 sparkle_pos = [-1,-1,-1,-1]         # Position of sparkles being added.
 sparkle_colour = [(0,0,0), (0,0,0), (0,0,0), (0,0,0)]  # Sparkle colour tracking.
@@ -61,8 +68,13 @@ max_sparkle_val = 160               # Maximum colour value for any sparkle
 num_chasers = 4                     # Number of chasers
 chaser_pos = [-1,-1,-1,-1]          # Chaser position tracking.
 chaser_colour = [(0,0,0), (0,0,0), (0,0,0), (0,0,0)]  # Chaser colour tracking.
-time_to_chaser = 0
-min_chaser_time = num_pixels // (num_chasers - 1) # Minimum time in milliseconds between adding a chaser
+top_colour_index = 0                # Index for tracking the top colour
+top_brightness_max = 255            # Maximum brightness of the top neopixels - this is set when a chaser reaches the top
+top_brightness_min = 128            # Minimum brightness of the top neopixels - assume some level of brightness
+top_brightness_step = 1             # Decay in brightness for top neopixels
+top_brightness = top_brightness_min # Current brightness of the top neopixels
+time_to_chaser = 0                  # Millisecond time to add another chaser randomly
+min_chaser_time = num_chaser_pixels // (num_chasers - 1) # Minimum time in milliseconds between adding a chaser
 max_chaser_time = 180000            # Maximum time in milliseconds between adding a chaser
 sparkle_sleep_time = 60             # Time in milliseconds between updates when doing the sparkle
 chaser_sleep_time = 20              # Time in milliseconds between updates when doing a chaser
@@ -75,10 +87,9 @@ sparkle_decay_val_mult = 8          # pixel decay value = pixel_value * decay_va
 sparkle_decay_val_div = 10
 chaser_decay_val_mult = 4           # pixel decay value = pixel_value * decay_val_mult // decay_val_div
 chaser_decay_val_div = 10
-flash_onboard_led = False           # Debug to check the pico is running
-use_idle_timer = True               # Whether to time out to idle. If false will always update the LEDs.
+flash_onboard_led = False           # Debug state to flash the onboard LED to check the pico is running
+use_idle_timer = True               # Whether to time out to idle. If false will always update the neopixels.
 time_to_idle_max = 3600 * 6         # Maximum time in seconds before idle
-time_to_idle_delta = 900            # Extra time in seconds added before idle when pressing the button
 time_to_idle = time.time()          # Time in seconds before going idle
 idle_mode = False                   # Whether we are in idle mode.
 time_next_button = next_loop_time   # Time in milliseconds to next check for button value - includes debouce
@@ -123,10 +134,31 @@ def ticks_less(ticks1, ticks2):
     return ticks_diff(ticks1, ticks2) < 0
 
 
+def update_top():
+    """Update the top pixels."""
+    global pixels, top_brightness, top_colour_index
+    for ind in range(num_chaser_pixels, num_chaser_pixels + num_top_pixels):
+        color = fancy.CHSV(top_colour_index, 96, top_brightness)
+        color_g = fancy.gamma_adjust(color)
+        packed = color_g.pack()
+        pixels[ind] = packed
+    if top_brightness > top_brightness_min:
+        top_brightness -= top_brightness_step
+    top_colour_index += 1
+
+
+def reach_top():
+    """Event for the top pixels animation.
+    Happens when a chaser reaches the top.
+    """
+    global top_brightness
+    top_brightness = top_brightness_max
+
+
 def add_chaser():
     """Will check if there is enough space since the last chaser."""
     global chaser_pos, time_to_chaser
-    last_chaser = num_pixels #  + min_chaser_time
+    last_chaser = num_chaser_pixels #  + min_chaser_time
     for ind in range(num_chasers):
         if chaser_pos[ind] == -1 and (last_chaser > min_chaser_time or last_chaser == -1):
             chaser_pos[ind] = 0
@@ -145,11 +177,12 @@ def progress_chasers():
     """
     global chaser_pos, pixels
     for ind in range(num_chasers):
-        if chaser_pos[ind] >= 0 and chaser_pos[ind] < num_pixels:
+        if chaser_pos[ind] >= 0 and chaser_pos[ind] < num_chaser_pixels:
             pixels[chaser_pos[ind]] = chaser_colour[ind]
             chaser_pos[ind] += 1
-            if chaser_pos[ind] >= num_pixels:
+            if chaser_pos[ind] >= num_chaser_pixels:
                 chaser_pos[ind] = -1
+                reach_top()
 
 
 def add_sparkle(decay_chance_mult, decay_chance_div):
@@ -158,7 +191,7 @@ def add_sparkle(decay_chance_mult, decay_chance_div):
     for ind in range(num_sparkles):
         if random.randrange(decay_chance_div) < decay_chance_mult:
             if sparkle_pos[ind] == -1:
-                sparkle_pos[ind] = random.randrange(num_pixels)
+                sparkle_pos[ind] = random.randrange(num_chaser_pixels)
                 sparkle_colour[ind] = (random.randrange(32,64),random.randrange(32,60),random.randrange(32,56))
             #pixels[sparkle_pos[ind]] = sparkle_colour[ind]
             pixel_r = pixels[sparkle_pos[ind]][0] + sparkle_colour[ind][0]
@@ -175,7 +208,7 @@ def decay_leds(decay_chance_mult, decay_chance_div, decay_val_mult, decay_val_di
     global pixels
     if decay_chance_mult == 0 or decay_chance_div == 0:
         return
-    for ind in range(num_pixels):
+    for ind in range(num_chaser_pixels):
         if sum(pixels[ind]) > 0 and ind not in sparkle_pos:
             if random.randrange(decay_chance_div) < decay_chance_mult:
                 pixel_r = (pixels[ind][0]*decay_val_mult)//decay_val_div
@@ -271,8 +304,11 @@ def update_loop():
         add_sparkle(decay_chance_div, decay_chance_mult)
     # Decay the pixels with a hint of randomness for a sparkle effect.
     decay_leds(decay_chance_mult, decay_chance_div, decay_val_mult, decay_val_div)
+    # Update the top pixels
+    update_top()
     # Show the updates.
     pixels.show()
+
 
 # Start off with a chaser and some idle time
 add_chaser()
