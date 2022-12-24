@@ -14,7 +14,7 @@ In addition, there is an optional "top" section of the LED stip / neopixel chain
 
 The brightness of neopixels is kept low, so current consumption hasn't been a problem when driving on computer USB port, though I wouldn't recommend it long term.
 
-![Light Animation](xmas_light_anim.mp4)
+`xmas_light_anim.mp4` is a short preview of the current animation as deployed for me.
 
 
 ### References
@@ -27,11 +27,12 @@ Based on various tutorials and ramblings, but primarily:
 
 ### Installation
 
-1. Download files (`code.py`)
+1. Download files / clone repository. The key file: ![code.py](code.py)
 2. Adjust parameters at the top of `code.py` as needed
 3. Plug in suitable hardware to your computer.
-4. Copy the code.py file to the USB drive of the microprocessor.
-5. Enjoy (After plugging in to a better power supply than your computer's USB port
+4. Copy the `code.py` file to the USB drive of the microprocessor.
+5. Copy over the right modules as required.
+6. Enjoy (After plugging in to a better power supply than your computer's USB port
 
 
 ### Requirements
