@@ -55,12 +55,12 @@ import adafruit_fancyled.adafruit_fancyled as fancy
 pixel_pin = board.GP15              # GPIO pin for talking to the pixels
 button_pin = board.GP26 # 12        # GPIO pin for button to trigger a chaser
 num_chaser_pixels = 100             # Number of neopixels for the chaser animation
-num_top_pixels = 1                  # Number of neopixels for the top animation
+num_top_pixels = 3                  # Number of neopixels for the top animation - if using RGBW will need 1.333 times the actual number of LEDs
+top_is_rgbw = True                  # Flag if rgbw LEDs for the top pixels - assumes the chasers are just RGB
 max_brightness = 0.30               # Scalar on the max brightness. 1 = max.
 time_to_idle_delta = 900            # Extra time in seconds added before idle when pressing the button
 
 # Following parameters are less likely to change
-num_pixels = num_chaser_pixels + num_top_pixels # Total number of neopixels
 num_sparkles = 1                    # Number of sparkles to track
 sparkle_pos = [-1,-1,-1,-1]         # Position of sparkles being added.
 sparkle_colour = [(0,0,0), (0,0,0), (0,0,0), (0,0,0)]  # Sparkle colour tracking.
@@ -94,6 +94,13 @@ time_to_idle = time.time()          # Time in seconds before going idle
 idle_mode = False                   # Whether we are in idle mode.
 time_next_button = next_loop_time   # Time in milliseconds to next check for button value - includes debouce
 time_button_debouce = 200           # Time in milliseconds to wait for button debounce
+
+# Initial calculations based on above settings
+num_top_pixels_effective = num_top_pixels
+if top_is_rgbw:
+    # Pad out to include the extra colour
+    num_top_pixels_effective = int(num_top_pixels * 1.3) + 1
+num_pixels = num_chaser_pixels + num_top_pixels_effective # Total number of neopixels
 
 # Define and initialize the onboard LED Pin - for heartbeat checking.
 led = digitalio.DigitalInOut(board.LED) # board.GP25 # Onboard LED
@@ -137,11 +144,30 @@ def ticks_less(ticks1, ticks2):
 def update_top():
     """Update the top pixels."""
     global pixels, top_brightness, top_colour_index
-    for ind in range(num_chaser_pixels, num_chaser_pixels + num_top_pixels):
-        color = fancy.CHSV(top_colour_index, 96, top_brightness)
-        color_g = fancy.gamma_adjust(color)
+    color = fancy.CHSV(top_colour_index, 96, top_brightness)
+    color_g = fancy.gamma_adjust(color)
+    if top_is_rgbw:
+        red = int(color_g[0]*256)
+        green = int(color_g[1]*256)
+        blue = int(color_g[2]*256)
+        white = min(red, green, blue)
+        red -= white
+        green -= white
+        blue -= white
+        colours = [green, red, blue, white]
+        colour_ind = 0
+        max_ind = 4 * num_top_pixels
+        for ind in range(num_top_pixels_effective):
+            base_ind = 3 * ind
+            # Note: the first two elements get flipped, effectively   g,r,b -> r,g,b
+            val_0 = colours[(base_ind+1)%4] if base_ind + 1 < max_ind else 0
+            val_1 = colours[(base_ind+0)%4] if base_ind + 0 < max_ind else 0
+            val_2 = colours[(base_ind+2)%4] if base_ind + 2 < max_ind else 0
+            pixels[ind+num_chaser_pixels] = (val_0,val_1,val_2)
+    else:
         packed = color_g.pack()
-        pixels[ind] = packed
+        for ind in range(num_chaser_pixels, num_chaser_pixels + num_top_pixels):
+            pixels[ind] = packed
     if top_brightness > top_brightness_min:
         top_brightness -= top_brightness_step
     top_colour_index += 1
@@ -300,7 +326,7 @@ def update_loop():
     # Progress the chasers
     progress_chasers()
     # Add a random twinkle to the LEDs if no active chasers
-    if not active_chasers:
+    if not active_chasers and num_chaser_pixels > 0:
         add_sparkle(decay_chance_div, decay_chance_mult)
     # Decay the pixels with a hint of randomness for a sparkle effect.
     decay_leds(decay_chance_mult, decay_chance_div, decay_val_mult, decay_val_div)
